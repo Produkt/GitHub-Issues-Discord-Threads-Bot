@@ -1,5 +1,6 @@
 import { graphql } from "@octokit/graphql";
 import { Octokit } from "@octokit/rest";
+import { createAppAuth } from "@octokit/auth-app";
 import { Attachment, Collection, Message } from "discord.js";
 import { config } from "../config";
 import { GitIssue, Thread } from "../interfaces";
@@ -12,28 +13,35 @@ import {
 } from "../logger";
 import { store } from "../store";
 
-export const octokit = new Octokit({
-  auth: config.GITHUB_ACCESS_TOKEN,
-  baseUrl: "https://api.github.com",
-});
-
-const graphqlWithAuth = graphql.defaults({
-  headers: {
-    authorization: `token  ${process.env.GITHUB_ACCESS_TOKEN}`,
-  },
-});
+// Verify the repository format
+const [owner, repo] = config.GITHUB_REPOSITORY.split('/');
+if (!owner || !repo) {
+  throw new Error('GITHUB_REPOSITORY must be in the format "owner/repo"');
+}
 
 export const repoCredentials = {
-  owner: config.GITHUB_USERNAME,
-  repo: config.GITHUB_REPOSITORY,
+  owner,
+  repo,
 };
+
+export const octokit = new Octokit({
+  authStrategy: createAppAuth,
+  auth: {
+    appId: config.GITHUB_APP_ID,
+    privateKey: config.GITHUB_APP_PRIVATE_KEY,
+    installationId: config.GITHUB_INSTALLATION_ID,
+    clientId: config.GITHUB_CLIENT_ID,
+    clientSecret: config.GITHUB_CLIENT_SECRET,
+  },
+  baseUrl: "https://api.github.com",
+});
 
 const info = (action: ActionValue, thread: Thread) =>
   logger.info(`${Triggerer.Discord} | ${action} | ${getGithubUrl(thread)}`);
 const error = (action: ActionValue | string, thread?: Thread) =>
   logger.error(
     `${Triggerer.Discord} | ${action} ` +
-      (thread ? `| ${getGithubUrl(thread)}` : ""),
+    (thread ? `| ${getGithubUrl(thread)}` : ""),
   );
 
 function attachmentsToMarkdown(attachments: Collection<string, Attachment>) {
@@ -252,6 +260,35 @@ export async function createIssueComment(thread: Thread, params: Message) {
   }
 }
 
+// Add this function to get an installation access token
+async function getInstallationAccessToken() {
+  try {
+    const { token } = await octokit.auth({
+      type: "installation",
+      installationId: config.GITHUB_INSTALLATION_ID,
+    });
+    return token;
+  } catch (error) {
+    console.error('Failed to get installation token:', error);
+    return null;
+  }
+}
+
+// Update GraphQL client to use the installation token
+async function getGraphQLClient() {
+  const token = await getInstallationAccessToken();
+  if (!token) {
+    throw new Error('Failed to get installation token');
+  }
+
+  return graphql.defaults({
+    baseUrl: "https://api.github.com",
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+}
+
 export async function deleteIssue(thread: Thread) {
   const { node_id } = thread;
   if (!node_id) {
@@ -260,10 +297,39 @@ export async function deleteIssue(thread: Thread) {
   }
 
   try {
-    await graphqlWithAuth(
-      `mutation {deleteIssue(input: {issueId: "${node_id}"}) {clientMutationId}}`,
-    );
-    info(Actions.Deleted, thread);
+    // Check permissions first
+    const { hasRequiredPermissions } = await checkAppPermissions();
+    if (!hasRequiredPermissions) {
+      error("GitHub App lacks required permissions to delete issues", thread);
+      return;
+    }
+
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        const graphqlClient = await getGraphQLClient();
+        await graphqlClient(
+          `mutation {deleteIssue(input: {issueId: "${node_id}"}) {clientMutationId}}`,
+        );
+        info(Actions.Deleted, thread);
+        return;
+      } catch (err: any) {
+        if (err.message?.includes('not authorized')) {
+          error("GitHub App is not authorized to delete issues. Please check permissions.", thread);
+          return;
+        }
+        if (err.message?.includes('rate limit') && retryCount < maxRetries - 1) {
+          retryCount++;
+          const waitTime = 1000 * Math.pow(2, retryCount);
+          console.log(`Rate limit hit, waiting ${waitTime}ms before retry ${retryCount}...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+        throw err;
+      }
+    }
   } catch (err) {
     if (err instanceof Error) {
       error(`Error deleting issue: ${err.message}`, thread);
@@ -339,3 +405,81 @@ async function fillCommentsData() {
     }
   }
 }
+
+async function checkAppPermissions() {
+  try {
+    const { data: installation } = await octokit.rest.apps.getInstallation({
+      installation_id: Number(config.GITHUB_INSTALLATION_ID)
+    });
+
+    console.log('Current GitHub App permissions:', installation.permissions);
+
+    const hasIssuesWrite = installation.permissions?.issues === 'write';
+    const hasAdminAccess = installation.permissions?.administration === 'write';
+
+    console.log('Permissions check:', {
+      hasIssuesWrite,
+      hasAdminAccess,
+      repository: installation.repository_selection,
+      targetType: installation.target_type,
+    });
+
+    return {
+      hasRequiredPermissions: hasIssuesWrite,
+      currentPermissions: installation.permissions
+    };
+  } catch (error) {
+    console.error('Failed to check permissions:', error);
+    return {
+      hasRequiredPermissions: false,
+      currentPermissions: null
+    };
+  }
+}
+
+async function verifyGitHubAppAuth() {
+  try {
+    const response = await octokit.rest.apps.getAuthenticated();
+    console.log('Successfully authenticated as GitHub App:', response.data.name);
+    return true;
+  } catch (error) {
+    console.error('GitHub App authentication failed:', error);
+    return false;
+  }
+}
+
+async function checkRateLimit() {
+  try {
+    const { data } = await octokit.rest.rateLimit.get();
+    console.log('Rate limit status:', {
+      remaining: data.rate.remaining,
+      limit: data.rate.limit,
+      reset: new Date(data.rate.reset * 1000).toLocaleString(),
+    });
+    return data.rate.remaining > 0;
+  } catch (error) {
+    console.error('Failed to check rate limit:', error);
+    return false;
+  }
+}
+
+// Startup checks
+(async () => {
+  const isAuthenticated = await verifyGitHubAppAuth();
+  if (!isAuthenticated) {
+    console.error('Failed to authenticate with GitHub App. Please check your credentials.');
+    return;
+  }
+
+  const { hasRequiredPermissions, currentPermissions } = await checkAppPermissions();
+  if (!hasRequiredPermissions) {
+    console.error('GitHub App lacks required permissions!', currentPermissions);
+    console.error('Please update the GitHub App permissions to include:');
+    console.error('- Issues: Read & Write');
+    console.error('Then reinstall the app at: https://github.com/settings/installations');
+  }
+
+  // Check initial rate limit status
+  await checkRateLimit();
+})();
+

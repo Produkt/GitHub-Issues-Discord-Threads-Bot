@@ -41,11 +41,10 @@ export const Actions = {
 export type ActionValue = (typeof Actions)[keyof typeof Actions];
 
 export const getDiscordUrl = (thread: Thread) => {
-  return `${
-    client.channels.cache.get(config.DISCORD_CHANNEL_ID)?.url
-  }/threads/${thread.id}`;
+  return `${client.channels.cache.get(config.DISCORD_CHANNEL_ID)?.url
+    }/threads/${thread.id}`;
 };
 
 export const getGithubUrl = (thread: Thread) => {
-  return `https://github.com/${config.GITHUB_USERNAME}/${config.GITHUB_REPOSITORY}/issues/${thread.number}`;
+  return `https://github.com/${config.GITHUB_REPOSITORY}/issues/${thread.number}`;
 };
