@@ -191,7 +191,7 @@ export async function createIssue(thread: Thread, params: Message) {
     const labels = appliedTags?.map(
       (id) => store.availableTags.find((item) => item.id === id)?.name || "",
     );
-
+    labels.push('Discord');
     const body = getIssueBody(params);
     const response = await octokit.rest.issues.create({
       ...repoCredentials,
