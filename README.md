@@ -53,20 +53,54 @@ Bot settings:
 
 Invite url: https://discord.com/api/oauth2/authorize?client_id=APPLICATION_ID&permissions=0&scope=bot
 
+#### Creating GitHub App
+
+1. Go to [GitHub Apps settings](https://github.com/settings/apps) and click "New GitHub App"
+2. Fill in the required information:
+   - **GitHub App name**: Choose a unique name
+   - **Homepage URL**: Your app's homepage (can be a placeholder)
+   - **User authorization callback URL**: Your app's callback URL (can be a placeholder)
+   - **Webhook URL**: Your webhook endpoint (optional, for future webhook support)
+   - **Webhook secret**: Generate a random secret (optional)
+3. Set the following permissions:
+   - **Repository permissions**:
+     - Issues: Read & Write
+     - Metadata: Read
+     - Contents: Read (if you need to access repository content)
+4. Subscribe to events (optional, for future webhook support):
+   - Issues
+   - Issue comment
+5. Choose installation options:
+   - **Where can this GitHub App be installed?**: Any account
+6. Click "Create GitHub App"
+7. After creation, you'll need:
+   - **App ID**: Found on the app's general settings page
+   - **Client ID**: Found on the app's general settings page
+   - **Client Secret**: Generate one in the app's general settings page
+   - **Private Key**: Generate and download from the app's general settings page
+8. Install the app on your repository:
+   - Go to the app's "Install App" tab
+   - Click "Install" on your target repository
+   - Note the **Installation ID** from the URL after installation
+
 #### env
 
 -   DISCORD_TOKEN - Discord developer bot page "Settings->bot->reset token" (https://discord.com/developers/applications/APPLICATION_ID/bot)
 -   DISCORD_CHANNEL_ID - In the Discord server, create a forum channel and right-click (RMB) to copy the channel ID (developer settings must be turned on for this). Alternatively, you can copy the ID from the link. Example:
 https://discord.com/channels/<GUILD_ID>/<DISCORD_CHANNEL_ID>
--   GITHUB_ACCESS_TOKEN 
-    1. [New Fine-grained Personal Access Token](https://github.com/settings/personal-access-tokens/new) or follow these steps: Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens -> Generate new token.
-    2. In the "Repository access" section, select "Only select repositories" and choose the specific repositories you need access to.
-    3. In the "Permissions" section, click on "Repository permissions" and set "Issues" to "Read & Write".
-    4. Generate and copy the personal access token.
--   GITHUB_USERNAME - example: https://github.com/<GITHUB_USERNAME>/<GITHUB_REPOSITORY>
--   GITHUB_REPOSITORY
+-   GITHUB_REPOSITORY - Repository in the format "owner/repo" (e.g., "produkt/panels")
+-   PORT - Server port (default: 3000)
+-   ADDITIONAL_LABELS - Comma-separated list of additional labels to add to GitHub issues (e.g., "discord,bug")
 
-> **_NOTE:_** For detailed information about personal access tokens, visit the [Managing your personal access tokens - GitHub Docs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+#### GitHub App Configuration
+
+-   GITHUB_APP_ID - Your GitHub App ID
+-   GITHUB_APP_PRIVATE_KEY - Your GitHub App private key (PEM format)
+-   GITHUB_INSTALLATION_ID - Installation ID for your GitHub App
+-   GITHUB_CLIENT_ID - GitHub App client ID (for OAuth)
+-   GITHUB_CLIENT_SECRET - GitHub App client secret (for OAuth)
+
+> **_NOTE:_** For detailed information about GitHub Apps, visit the [GitHub Apps documentation](https://docs.github.com/en/apps).
 
 #### Start bot
 
